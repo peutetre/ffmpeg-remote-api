@@ -142,6 +142,11 @@ async function executeFfmpegCommand(jobId, command, inputDir, outputFileName, on
     }
   }
   
+  // Determine ffmpeg's output file from the command args.
+  // The last argument (that isn't an option value) is typically the output path.
+  const ffmpegOutputName = args.length > 0 ? args[args.length - 1] : null;
+  const finalOutputName = outputFileName || (ffmpegOutputName ? path.basename(ffmpegOutputName) : `${jobId}.mp4`);
+  
   // Exécuter la commande via spawn (no shell)
   const startTime = Date.now();
   
@@ -184,15 +189,34 @@ async function executeFfmpegCommand(jobId, command, inputDir, outputFileName, on
     });
     
     // Process terminé
-    childProcess.on('close', (code) => {
+    childProcess.on('close', async (code) => {
       const duration = Math.round((Date.now() - startTime) / 1000);
       
       if (code === 0) {
+        // Move the output file from inputDir (ffmpeg CWD) to outputDir
+        try {
+          const ffmpegOutput = ffmpegOutputName ? path.join(inputDir, ffmpegOutputName) : null;
+          const finalPath = path.join(outputDir, finalOutputName);
+          
+          if (ffmpegOutput) {
+            try {
+              await fs.access(ffmpegOutput);
+              await fs.copyFile(ffmpegOutput, finalPath);
+              await fs.unlink(ffmpegOutput).catch(() => {});
+              logger.info('Output moved to outputDir', { from: ffmpegOutput, to: finalPath });
+            } catch (moveErr) {
+              logger.warn('Could not move output file, it may already be in outputDir', { error: moveErr.message });
+            }
+          }
+        } catch (err) {
+          logger.warn('Error during output file move', { error: err.message });
+        }
+        
         logger.info('Commande terminée avec succès', { code, duration });
         resolve({
           success: true,
-          outputPath,
-          outputFileName: path.basename(outputPath),
+          outputPath: path.join(outputDir, finalOutputName),
+          outputFileName: finalOutputName,
           duration,
         });
       } else {
