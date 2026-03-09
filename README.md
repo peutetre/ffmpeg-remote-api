@@ -1,18 +1,18 @@
 # FFmpeg Remote API
 
-API pour exécuter des jobs FFmpeg à distance, permettant aux clients de soumettre des tâches de traitement vidéo/audio sans avoir besoin de ressources locales.
+API to run FFmpeg jobs remotely, allowing clients to submit video/audio processing tasks without needing local resources.
 
-## 🚀 Fonctionnalités
+## 🚀 Features
 
-- **Authentification JWT**: Inscription, connexion, refresh token
-- **Upload multi-fichiers**: Uploader vos assets (vidéo, audio, images) via multipart/form-data
-- **Commandes FFmpeg flexibles**: Exécuter n'importe quelle commande FFmpeg
-- **Queue de jobs**: Gestion scalable des jobs avec BullMQ et Redis
-- **Progression en temps réel**: Suivre la progression des encodages
-- **Pagination**: Liste paginée des jobs avec filtres et tri
-- **Téléchargement des résultats**: Récupérer les fichiers encodés
+- **JWT Authentication**: Register, login, refresh token
+- **Multi-file Upload**: Upload your assets (video, audio, images) via multipart/form-data
+- **Flexible FFmpeg Commands**: Run any FFmpeg command
+- **Job Queue**: Scalable job management with BullMQ and Redis
+- **Real-time Progress**: Track encoding progress
+- **Pagination**: Paginated job listing with filters and sorting
+- **Result Download**: Retrieve encoded files
 
-## 📋 Prérequis
+## 📋 Prerequisites
 
 - Node.js >= 18
 - Redis 7+
@@ -20,14 +20,14 @@ API pour exécuter des jobs FFmpeg à distance, permettant aux clients de soumet
 
 ## 🛠️ Installation
 
-### 1. Installer les dépendances
+### 1. Install dependencies
 
 ```bash
 cd ffmpeg-remote-api
 npm install
 ```
 
-### 2. Installer FFmpeg
+### 2. Install FFmpeg
 
 **Ubuntu/Debian:**
 ```bash
@@ -41,52 +41,47 @@ brew install ffmpeg
 ```
 
 **Windows:**
-Télécharger depuis https://ffmpeg.org/download.html
+Download from https://ffmpeg.org/download.html
 
-### 3. Démarrer Redis
+### 3. Start Redis
 
 ```bash
-docker run -d -p 6379:6379 redis:7-alpine
+redis-server
 ```
 
-Ou avec docker-compose:
+Or install via your package manager:
+
 ```bash
-docker-compose up -d redis
+# Ubuntu/Debian
+sudo apt-get install redis-server
+
+# macOS
+brew install redis && brew services start redis
 ```
 
-## 🏃 Utilisation
+## 🏃 Usage
 
-### Démarrer le serveur
+### Start the server
 
 ```bash
 npm start
 ```
 
-Le serveur démarre sur `http://localhost:3000`
+The server starts on `http://localhost:3000`
 
-### Démarrer le worker
+### Start the worker
 
-Dans un nouveau terminal:
+In a new terminal:
 
 ```bash
 npm run worker
 ```
 
-### Utiliser Docker Compose
-
-```bash
-# Démarrer tout (Redis, API, Worker)
-docker-compose up -d
-
-# Voir les logs
-docker-compose logs -f
-```
-
 ## 📚 API Documentation
 
-### Authentification
+### Authentication
 
-#### Inscription
+#### Register
 
 ```bash
 curl -X POST http://localhost:3000/api/auth/register \
@@ -97,10 +92,10 @@ curl -X POST http://localhost:3000/api/auth/register \
     "name": "John Doe"
   }'
 
-# Réponse:
+# Response:
 {
   "success": true,
-  "message": "Utilisateur créé avec succès",
+  "message": "User created successfully",
   "user": {
     "id": "user_1234567890_abc123",
     "email": "user@example.com",
@@ -111,7 +106,7 @@ curl -X POST http://localhost:3000/api/auth/register \
 }
 ```
 
-#### Connexion
+#### Login
 
 ```bash
 curl -X POST http://localhost:3000/api/auth/login \
@@ -121,17 +116,17 @@ curl -X POST http://localhost:3000/api/auth/login \
     "password": "password123"
   }'
 
-# Réponse:
+# Response:
 {
   "success": true,
-  "message": "Connexion réussie",
+  "message": "Login successful",
   "user": { ... },
   "accessToken": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
   "refreshToken": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
 }
 ```
 
-#### Rafraîchir le token
+#### Refresh token
 
 ```bash
 curl -X POST http://localhost:3000/api/auth/refresh \
@@ -140,7 +135,7 @@ curl -X POST http://localhost:3000/api/auth/refresh \
     "refreshToken": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
   }'
 
-# Réponse:
+# Response:
 {
   "success": true,
   "user": { ... },
@@ -148,13 +143,13 @@ curl -X POST http://localhost:3000/api/auth/refresh \
 }
 ```
 
-#### Obtenir l'utilisateur courant
+#### Get current user
 
 ```bash
 curl http://localhost:3000/api/auth/me \
   -H "Authorization: Bearer <accessToken>"
 
-# Réponse:
+# Response:
 {
   "success": true,
   "user": {
@@ -165,7 +160,7 @@ curl http://localhost:3000/api/auth/me \
 }
 ```
 
-#### Déconnexion
+#### Logout
 
 ```bash
 curl -X POST http://localhost:3000/api/auth/logout \
@@ -174,16 +169,17 @@ curl -X POST http://localhost:3000/api/auth/logout \
 
 ---
 
-### Uploader des assets
+### Upload assets
 
 ```bash
-# Uploader des fichiers
+# Upload files
 curl -X POST http://localhost:3000/api/upload \
+  -H "Authorization: Bearer <accessToken>" \
   -F "files=@video.mp4" \
   -F "files=@audio.mp3" \
   -F "files=@overlay.png"
 
-# Réponse:
+# Response:
 {
   "success": true,
   "uploadId": "abc123-def456",
@@ -195,10 +191,9 @@ curl -X POST http://localhost:3000/api/upload \
 }
 ```
 
-### Créer un job
+### Create a job
 
 ```bash
-# Créer un job avec une commande FFmpeg
 curl -X POST http://localhost:3000/api/jobs \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer <accessToken>" \
@@ -208,33 +203,33 @@ curl -X POST http://localhost:3000/api/jobs \
     "outputFileName": "output.mp4"
   }'
 
-# Réponse:
+# Response:
 {
   "success": true,
   "jobId": "job-xyz789"
 }
 ```
 
-### Lister les jobs (avec pagination)
+### List jobs (with pagination)
 
 ```bash
-# Lister tous les jobs de l'utilisateur
+# List all user jobs
 curl "http://localhost:3000/api/jobs?page=1&limit=20" \
   -H "Authorization: Bearer <accessToken>"
 
-# Filtrer par statut
+# Filter by status
 curl "http://localhost:3000/api/jobs?status=completed" \
   -H "Authorization: Bearer <accessToken>"
 
-# Trier par date de création (croissant)
+# Sort by creation date (ascending)
 curl "http://localhost:3000/api/jobs?sortBy=createdAt&sortOrder=asc" \
   -H "Authorization: Bearer <accessToken>"
 
-# Rechercher dans les commandes
+# Search in commands
 curl "http://localhost:3000/api/jobs?search=ffmpeg" \
   -H "Authorization: Bearer <accessToken>"
 
-# Réponse:
+# Response:
 {
   "jobs": [
     {
@@ -257,13 +252,13 @@ curl "http://localhost:3000/api/jobs?search=ffmpeg" \
 }
 ```
 
-### Vérifier le statut d'un job
+### Check job status
 
 ```bash
 curl http://localhost:3000/api/jobs/job-xyz789 \
   -H "Authorization: Bearer <accessToken>"
 
-# Réponse:
+# Response:
 {
   "exists": true,
   "id": "job-xyz789",
@@ -273,27 +268,28 @@ curl http://localhost:3000/api/jobs/job-xyz789 \
 }
 ```
 
-Statuts possibles:
-- `pending`: En attente dans la queue
-- `processing`: En cours d'exécution
-- `completed`: Terminé avec succès
-- `failed`: Échoué
-- `canceled`: Annulé
+Possible statuses:
+- `pending`: Waiting in queue
+- `processing`: Currently running
+- `completed`: Finished successfully
+- `failed`: Failed
+- `canceled`: Canceled
 
-### Télécharger le résultat
+### Download result
 
 ```bash
-# Une fois le job terminé
+# Once the job is completed
 curl -o output.mp4 http://localhost:3000/api/jobs/job-xyz789/result \
   -H "Authorization: Bearer <accessToken>"
 ```
 
-### Statistiques de la queue
+### Queue statistics
 
 ```bash
-curl http://localhost:3000/api/jobs/stats
+curl http://localhost:3000/api/jobs/stats \
+  -H "Authorization: Bearer <accessToken>"
 
-# Réponse:
+# Response:
 {
   "waiting": 2,
   "active": 1,
@@ -303,9 +299,9 @@ curl http://localhost:3000/api/jobs/stats
 }
 ```
 
-## 🔧 Exemples de commandes
+## 🔧 Example commands
 
-### Fusionner vidéo et audio
+### Merge video and audio
 ```json
 {
   "command": "ffmpeg -i video.mp4 -i audio.mp3 -c:v copy -c:a aac -map 0:v:0 -map 1:a:0 output.mp4",
@@ -314,7 +310,7 @@ curl http://localhost:3000/api/jobs/stats
 }
 ```
 
-### Ajouter un filigrane (overlay)
+### Add a watermark (overlay)
 ```json
 {
   "command": "ffmpeg -i video.mp4 -i logo.png -filter_complex \"overlay=10:10\" output.mp4",
@@ -323,7 +319,7 @@ curl http://localhost:3000/api/jobs/stats
 }
 ```
 
-### Convertir en GIF
+### Convert to GIF
 ```json
 {
   "command": "ffmpeg -i video.mp4 -vf \"fps=10,scale=320:-1:flags=lanczos\" output.gif",
@@ -332,7 +328,7 @@ curl http://localhost:3000/api/jobs/stats
 }
 ```
 
-### Extraire l'audio
+### Extract audio
 ```json
 {
   "command": "ffmpeg -i video.mp4 -vn -acodec mp3 output.mp3",
@@ -341,7 +337,7 @@ curl http://localhost:3000/api/jobs/stats
 }
 ```
 
-### Créer une vidéo à partir d'images
+### Create video from images
 ```json
 {
   "command": "ffmpeg -framerate 30 -i frame-%03d.png -c:v libx264 -pix_fmt yuv420p output.mp4",
@@ -350,20 +346,20 @@ curl http://localhost:3000/api/jobs/stats
 }
 ```
 
-## 🔌 Variables d'environnement
+## 🔌 Environment Variables
 
-| Variable | Défaut | Description |
-|----------|--------|-------------|
-| `PORT` | 3000 | Port du serveur |
-| `REDIS_HOST` | localhost | Hôte Redis |
-| `REDIS_PORT` | 6379 | Port Redis |
-| `JWT_SECRET` | *changeme* | Secret pour signer les tokens JWT |
-| `JWT_ACCESS_EXPIRATION` | 3600 | Durée de vie du token d'accès (secondes) |
-| `JWT_REFRESH_EXPIRATION` | 604800 | Durée de vie du token de rafraîchissement (secondes) |
-| `MAX_UPLOAD_SIZE_MB` | 5000 | Taille max d'upload (Mo) |
-| `MAX_CONCURRENT_JOBS` | 4 | Jobs simultanés max |
-| `FFPROG_TIMEOUT_HOURS` | 2 | Timeout par job (heures) |
-| `TEMP_FILE_TTL_HOURS` | 24 | Durée de vie des fichiers temporaires |
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `PORT` | 3000 | Server port |
+| `REDIS_HOST` | localhost | Redis host |
+| `REDIS_PORT` | 6379 | Redis port |
+| `JWT_SECRET` | *changeme* | Secret for signing JWT tokens |
+| `JWT_ACCESS_EXPIRATION` | 3600 | Access token lifetime (seconds) |
+| `JWT_REFRESH_EXPIRATION` | 604800 | Refresh token lifetime (seconds) |
+| `MAX_UPLOAD_SIZE_MB` | 5000 | Max upload size (MB) |
+| `MAX_CONCURRENT_JOBS` | 4 | Max concurrent jobs |
+| `FFPROG_TIMEOUT_HOURS` | 2 | Timeout per job (hours) |
+| `TEMP_FILE_TTL_HOURS` | 24 | Temp file lifetime |
 
 ## 📊 Architecture
 
@@ -386,9 +382,9 @@ curl http://localhost:3000/api/jobs/stats
                            └───────────┘
 ```
 
-## 🖥️ CLI (Ligne de commande)
+## 🖥️ CLI (Command Line)
 
-Le CLI permet d'interagir avec l'API directement depuis le terminal.
+The CLI allows you to interact with the API directly from the terminal.
 
 ### Installation
 
@@ -396,38 +392,38 @@ Le CLI permet d'interagir avec l'API directement depuis le terminal.
 npm install
 ```
 
-### Commandes disponibles
+### Available commands
 
-#### Authentification
+#### Authentication
 
 ```bash
-# S'inscrire
+# Register
 ffmpeg-api auth register user@example.com password123 --name "John Doe"
 
-# Se connecter
+# Login
 ffmpeg-api auth login user@example.com password123
 
-# Afficher l'utilisateur courant
+# Show current user
 ffmpeg-api auth me
 
-# Rafraîchir le token
+# Refresh token
 ffmpeg-api auth refresh
 
-# Se déconnecter
+# Logout
 ffmpeg-api auth logout
 ```
 
 #### Upload
 
 ```bash
-# Uploader un ou plusieurs fichiers
+# Upload one or more files
 ffmpeg-api upload video.mp4 audio.mp3
-ffmpeg-api u image.png  # alias court
+ffmpeg-api u image.png  # short alias
 
-# Réponse:
-# ✓ Upload terminé !
+# Response:
+# ✓ Upload complete!
 #   Upload ID: abc123-def456
-#   Fichiers: 2
+#   Files: 2
 #     - video.mp4 (15.23 MB)
 #     - audio.mp3 (3.45 MB)
 ```
@@ -435,56 +431,56 @@ ffmpeg-api u image.png  # alias court
 #### Jobs
 
 ```bash
-# Créer un job
+# Create a job
 ffmpeg-api job create \
   --command="ffmpeg -i video.mp4 -vf 'scale=1280:-1' output.mp4" \
   --upload-id abc123-def456 \
   --output output.mp4
 
-# Obtenir le statut d'un job
+# Get job status
 ffmpeg-api job status job-xyz789
 
-# Lister les jobs (paginé)
+# List jobs (paginated)
 ffmpeg-api job list --page 1 --limit 20
 ffmpeg-api job list --status completed
 ffmpeg-api job list --search "scale"
 
-# Suivre un job en temps réel
+# Watch a job in real-time
 ffmpeg-api job watch job-xyz789
 
-# Télécharger le résultat
+# Download result
 ffmpeg-api job download job-xyz789
-ffmpeg-api job download job-xyz789 --output mon-video.mp4
+ffmpeg-api job download job-xyz789 --output my-video.mp4
 
-# Supprimer un job
+# Delete a job
 ffmpeg-api job delete job-xyz789
 ```
 
-#### Exécution rapide
+#### Quick run
 
 ```bash
-# Créer et exécuter un job en une commande
+# Create and run a job in one command
 ffmpeg-api run "ffmpeg -i video.mp4 output.mp4" \
   --upload-id abc123-def456 \
   --output output.mp4 \
   --watch \
   --download
 
-# Le job est créé, suivi en temps réel, et le résultat téléchargé automatiquement
+# The job is created, tracked in real-time, and the result downloaded automatically
 ```
 
-### Options globales
+### Global options
 
 ```bash
-# Utiliser une autre URL d'API
-ffmpeg-api auth login user@example.com password --url http://mon-serveau:3000
+# Use a different API URL
+ffmpeg-api auth login user@example.com password --url http://my-server:3000
 
-# L'URL est sauvegardée dans ~/.ffmpeg-api-config
+# The URL is saved in ~/.ffmpeg-api-config
 ```
 
 ### Configuration
 
-Le CLI stocke sa configuration dans `~/.ffmpeg-api-config` :
+The CLI stores its configuration in `~/.ffmpeg-api-config`:
 
 ```json
 {
@@ -495,27 +491,13 @@ Le CLI stocke sa configuration dans `~/.ffmpeg-api-config` :
 }
 ```
 
-### Aide
+### Help
 
 ```bash
-ffmpeg-api --help           # Aide générale
-ffmpeg-api auth --help      # Aide commandes auth
-ffmpeg-api job --help       # Aide commandes job
-ffmpeg-api job create --help # Aide pour une commande spécifique
-```
-
-## 🐳 Docker
-
-```bash
-# Build et run
-docker-compose up -d --build
-
-# Logs
-docker-compose logs -f api
-docker-compose logs -f worker
-
-# Stop
-docker-compose down
+ffmpeg-api --help            # General help
+ffmpeg-api auth --help       # Auth commands help
+ffmpeg-api job --help        # Job commands help
+ffmpeg-api job create --help # Help for a specific command
 ```
 
 ## 📄 License
