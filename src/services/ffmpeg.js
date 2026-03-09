@@ -101,9 +101,10 @@ function parseFFmpegCommand(command) {
   // Block shell metacharacters in arguments.
   // Since we use spawn() (no shell), only characters that could break out
   // of the process boundary are dangerous. Backslashes, parentheses, semicolons,
-  // colons, and equals signs are all legitimate in FFmpeg filter expressions
-  // (drawtext, overlay, xfade, etc.) and are harmless without a shell.
-  const dangerous = /[&|`${}]/;
+  // colons, pipes, and equals signs are all legitimate in FFmpeg filter expressions
+  // (drawtext, adelay, overlay, xfade, etc.) and are harmless without a shell.
+  // Pipe (|) is used by FFmpeg as channel separator in filters like adelay=0|0.
+  const dangerous = /[&`${}]/;
   
   for (const arg of args) {
     if (dangerous.test(arg)) {
