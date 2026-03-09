@@ -3,12 +3,16 @@ const path = require('path');
 const fs = require('fs').promises;
 const { v4: uuidv4 } = require('uuid');
 const { upload } = require('../middleware/upload');
+const { authenticate } = require('../middleware/auth');
 const FFmpegConfig = require('../config/ffmpeg');
 
 const router = express.Router();
 
-// POST /api/upload - Upload des assets
-router.post('/', upload.array('files', 100), async (req, res) => {
+// UUID format validation
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+// POST /api/upload - Upload des assets (requires auth)
+router.post('/', authenticate, upload.array('files', 100), async (req, res) => {
   try {
     if (!req.files || req.files.length === 0) {
       return res.status(400).json({
@@ -20,28 +24,24 @@ router.post('/', upload.array('files', 100), async (req, res) => {
     // Générer un ID unique pour cet upload
     const uploadId = uuidv4();
     const uploadPath = path.join(FFmpegConfig.uploadDir, uploadId);
+    await fs.mkdir(uploadPath, { recursive: true });
     
-    // Déplacer les fichiers vers le dossier de l'upload
+    // Déplacer les fichiers du dossier temp vers le dossier final
     const uploadedFiles = [];
     
     for (const file of req.files) {
-      const destPath = path.join(uploadPath, file.filename);
-      await fs.copyFile(file.path, destPath);
+      // Strip the timestamp prefix we added in multer filename
+      const originalName = file.originalname.replace(/\s+/g, '_');
+      const destPath = path.join(uploadPath, originalName);
+      await fs.rename(file.path, destPath);
       
       uploadedFiles.push({
         name: file.originalname,
         size: file.size,
         mimetype: file.mimetype,
-        path: file.filename,
+        path: originalName,
       });
-      
-      // Supprimer le fichier temporaire
-      await fs.unlink(file.path);
     }
-    
-    // Supprimer le dossier temporaire créé par multer
-    const tempDir = path.dirname(req.files[0].path);
-    await fs.rm(tempDir, { recursive: true, force: true });
     
     res.json({
       success: true,
@@ -59,9 +59,13 @@ router.post('/', upload.array('files', 100), async (req, res) => {
   }
 });
 
-// GET /api/upload/:id - Lister les fichiers d'un upload
-router.get('/:id', async (req, res) => {
+// GET /api/upload/:id - Lister les fichiers d'un upload (requires auth)
+router.get('/:id', authenticate, async (req, res) => {
   try {
+    if (!UUID_RE.test(req.params.id)) {
+      return res.status(400).json({ error: 'ID invalide' });
+    }
+    
     const uploadPath = path.join(FFmpegConfig.uploadDir, req.params.id);
     
     const stat = await fs.stat(uploadPath);
@@ -79,7 +83,6 @@ router.get('/:id', async (req, res) => {
       fileList.push({
         name: file,
         size: fileStat.size,
-        path: filePath,
       });
     }
     
@@ -94,9 +97,13 @@ router.get('/:id', async (req, res) => {
   }
 });
 
-// DELETE /api/upload/:id - Supprimer un upload
-router.delete('/:id', async (req, res) => {
+// DELETE /api/upload/:id - Supprimer un upload (requires auth)
+router.delete('/:id', authenticate, async (req, res) => {
   try {
+    if (!UUID_RE.test(req.params.id)) {
+      return res.status(400).json({ error: 'ID invalide' });
+    }
+    
     const uploadPath = path.join(FFmpegConfig.uploadDir, req.params.id);
     
     await fs.rm(uploadPath, { recursive: true, force: true });

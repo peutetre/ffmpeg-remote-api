@@ -30,8 +30,18 @@ const io = new Server(server, {
   },
 });
 
-// Stocker io globalement pour les workers
-global.io = io;
+// Redis pub/sub bridge: worker publishes events, server forwards to Socket.io
+redisSub.subscribe('job:events');
+redisSub.on('message', (channel, message) => {
+  if (channel === 'job:events') {
+    try {
+      const event = JSON.parse(message);
+      io.emit(`job:${event.jobId}:${event.type}`, event.data);
+    } catch (error) {
+      logger.error('Error parsing job event', { error: error.message });
+    }
+  }
+});
 
 // Middleware
 app.use(cors());

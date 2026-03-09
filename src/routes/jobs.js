@@ -1,12 +1,16 @@
 const express = require('express');
 const path = require('path');
 const fs = require('fs').promises;
+const fsSync = require('fs');
 const { redisClient } = require('../config/redis');
 const { createJob, getJobStatus, cancelJob, getQueueStats, listJobs, getUserJobs, updateJobMetadata } = require('../services/jobQueue');
 const { authenticate } = require('../middleware/auth');
 const FFmpegConfig = require('../config/ffmpeg');
 
 const router = express.Router();
+
+// UUID format validation
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 // POST /api/jobs - Créer un nouveau job
 router.post('/', authenticate, async (req, res) => {
@@ -28,6 +32,14 @@ router.post('/', authenticate, async (req, res) => {
       });
     }
     
+    // Validate uploadId format (path traversal protection)
+    if (!UUID_RE.test(uploadId)) {
+      return res.status(400).json({
+        error: 'Upload ID invalide',
+        message: 'L\'ID de l\'upload doit être un UUID valide',
+      });
+    }
+    
     // Vérifier que l'upload existe
     const uploadPath = path.join(FFmpegConfig.uploadDir, uploadId);
     try {
@@ -38,7 +50,7 @@ router.post('/', authenticate, async (req, res) => {
     } catch (error) {
       return res.status(404).json({
         error: 'Upload introuvable',
-        message: `L\'upload ${uploadId} n\'existe pas`,
+        message: `L'upload ${uploadId} n'existe pas`,
       });
     }
     
@@ -98,8 +110,8 @@ router.get('/', authenticate, async (req, res) => {
   }
 });
 
-// GET /api/jobs/stats - Statistiques de la queue
-router.get('/stats', async (req, res) => {
+// GET /api/jobs/stats - Statistiques de la queue (requires auth)
+router.get('/stats', authenticate, async (req, res) => {
   try {
     const stats = await getQueueStats();
     res.json(stats);
@@ -116,11 +128,11 @@ router.get('/:id', authenticate, async (req, res) => {
     if (!status.exists) {
       return res.status(404).json({
         error: 'Job introuvable',
-        message: `Le job ${req.params.id} n\'existe pas`,
+        message: `Le job ${req.params.id} n'existe pas`,
       });
     }
     
-    // Vérifier que le job appartient à l'utilisateur (sauf pour les jobs admin)
+    // Vérifier que le job appartient à l'utilisateur
     const jobDataStr = await redisClient.hget('ffmpeg_jobs:data', req.params.id);
     if (jobDataStr) {
       const jobData = JSON.parse(jobDataStr);
@@ -181,13 +193,25 @@ router.delete('/:id', authenticate, async (req, res) => {
   }
 });
 
-// GET /api/jobs/:id/result - Télécharger le résultat d'un job
-router.get('/:id/result', async (req, res) => {
+// GET /api/jobs/:id/result - Télécharger le résultat d'un job (requires auth)
+router.get('/:id/result', authenticate, async (req, res) => {
   try {
     const status = await getJobStatus(req.params.id);
     
     if (!status.exists) {
       return res.status(404).json({ error: 'Job introuvable' });
+    }
+    
+    // Vérifier que le job appartient à l'utilisateur
+    const jobDataStr = await redisClient.hget('ffmpeg_jobs:data', req.params.id);
+    if (jobDataStr) {
+      const jobData = JSON.parse(jobDataStr);
+      if (jobData.userId && jobData.userId !== req.userId) {
+        return res.status(403).json({
+          error: 'Interdit',
+          message: 'Vous n\'avez pas accès à ce job',
+        });
+      }
     }
     
     if (status.status !== 'completed') {
@@ -217,11 +241,12 @@ router.get('/:id/result', async (req, res) => {
     const stat = await fs.stat(outputPath);
     
     // Envoyer le fichier
-    res.setHeader('Content-Type', 'video/mp4');
+    res.setHeader('Content-Type', 'application/octet-stream');
     res.setHeader('Content-Length', stat.size);
     res.setHeader('Content-Disposition', `attachment; filename="${status.result.outputFileName}"`);
     
-    const stream = fs.createReadStream(outputPath);
+    // Use sync fs for createReadStream (not available on fs.promises)
+    const stream = fsSync.createReadStream(outputPath);
     stream.pipe(res);
     
   } catch (error) {
