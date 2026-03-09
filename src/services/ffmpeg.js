@@ -99,25 +99,15 @@ function parseFFmpegCommand(command) {
   }
   
   // Block shell metacharacters in arguments.
-  // Filter expressions (-filter_complex, -vf, -af, -lavfi) legitimately use ; and ()
-  const dangerousGeneral = /[&|`${}]/;          // Always dangerous
-  const dangerousNonFilter = /[;&|`$(){}]/;     // Dangerous outside filter context
-  const filterFlags = new Set(['-filter_complex', '-vf', '-af', '-lavfi', '-filter']);
+  // Since we use spawn() (no shell), only characters that could break out
+  // of the process boundary are dangerous. Backslashes, parentheses, semicolons,
+  // colons, and equals signs are all legitimate in FFmpeg filter expressions
+  // (drawtext, overlay, xfade, etc.) and are harmless without a shell.
+  const dangerous = /[&|`${}]/;
   
-  let nextIsFilterValue = false;
   for (const arg of args) {
-    if (nextIsFilterValue) {
-      // Filter value: only block truly dangerous chars (not ; or ())
-      if (dangerousGeneral.test(arg)) {
-        throw new Error(`Dangerous character in filter argument: ${arg}`);
-      }
-      nextIsFilterValue = false;
-    } else if (filterFlags.has(arg)) {
-      nextIsFilterValue = true;
-    } else {
-      if (dangerousNonFilter.test(arg)) {
-        throw new Error(`Dangerous character in argument: ${arg}`);
-      }
+    if (dangerous.test(arg)) {
+      throw new Error(`Dangerous character in argument: ${arg}`);
     }
   }
   
