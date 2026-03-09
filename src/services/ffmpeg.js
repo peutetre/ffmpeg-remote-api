@@ -98,11 +98,26 @@ function parseFFmpegCommand(command) {
     throw new Error(`Only ffmpeg and ffprobe are allowed, got: ${executable}`);
   }
   
-  // Block shell metacharacters in arguments
-  const dangerous = /[;&|`$(){}]/;
+  // Block shell metacharacters in arguments.
+  // Filter expressions (-filter_complex, -vf, -af, -lavfi) legitimately use ; and ()
+  const dangerousGeneral = /[&|`${}]/;          // Always dangerous
+  const dangerousNonFilter = /[;&|`$(){}]/;     // Dangerous outside filter context
+  const filterFlags = new Set(['-filter_complex', '-vf', '-af', '-lavfi', '-filter']);
+  
+  let nextIsFilterValue = false;
   for (const arg of args) {
-    if (dangerous.test(arg)) {
-      throw new Error(`Dangerous character in argument: ${arg}`);
+    if (nextIsFilterValue) {
+      // Filter value: only block truly dangerous chars (not ; or ())
+      if (dangerousGeneral.test(arg)) {
+        throw new Error(`Dangerous character in filter argument: ${arg}`);
+      }
+      nextIsFilterValue = false;
+    } else if (filterFlags.has(arg)) {
+      nextIsFilterValue = true;
+    } else {
+      if (dangerousNonFilter.test(arg)) {
+        throw new Error(`Dangerous character in argument: ${arg}`);
+      }
     }
   }
   
