@@ -43,6 +43,17 @@ redisSub.on('message', (channel, message) => {
   }
 });
 
+// Request logging middleware
+app.use((req, res, next) => {
+  if (req.path === '/health') return next();
+  const start = Date.now();
+  res.on('finish', () => {
+    const duration = Date.now() - start;
+    logger.info(`${req.method} ${req.originalUrl} ${res.statusCode}`, { duration, ip: req.ip });
+  });
+  next();
+});
+
 // Middleware
 app.use(cors());
 app.use(helmet({
@@ -117,7 +128,7 @@ io.on('connection', (socket) => {
 
 // Gestion des erreurs
 app.use((err, req, res, next) => {
-  console.error('Erreur inattendue:', err);
+  logger.error('Unhandled error', { error: err.message, stack: err.stack, path: req.originalUrl });
   res.status(500).json({
     error: 'Erreur interne du serveur',
     message: process.env.NODE_ENV === 'development' ? err.message : 'Une erreur est survenue',
@@ -138,43 +149,35 @@ async function startServer() {
     // Vérifier ffmpeg
     const ffmpegStatus = await checkFfmpegInstalled();
     if (!ffmpegStatus.installed) {
-      console.error('⚠️  FFmpeg n\'est pas installé ou pas dans le PATH');
-      console.error('Installation:', 'sudo apt-get install ffmpeg');
+      logger.error('FFmpeg is not installed or not in PATH');
     } else {
-      console.log(`✓ FFmpeg installé: version ${ffmpegStatus.version}`);
+      logger.info(`FFmpeg installed: version ${ffmpegStatus.version}`);
     }
     
     // Vérifier Redis
     try {
       await redisPub.ping();
-      console.log('✓ Connexion Redis établie');
+      logger.info('Redis connection established');
     } catch (error) {
-      console.error('✗ Erreur de connexion Redis:', error.message);
-      console.error('Assurez-vous que Redis est démarré: docker-compose up -d');
+      logger.error('Redis connection failed', { error: error.message });
     }
     
     // Démarrer le serveur HTTP
     const PORT = process.env.PORT || 3000;
     server.listen(PORT, () => {
-      console.log(`\n🚀 FFmpeg Remote API démarrée sur http://localhost:${PORT}`);
-      console.log(`📡 Socket.io disponible sur ws://localhost:${PORT}`);
-      console.log(`\n📚 Documentation:`);
-      console.log(`   - Health check: http://localhost:${PORT}/health`);
-      console.log(`   - API info: http://localhost:${PORT}/`);
-      console.log(`\n⚙️  Pour démarrer le worker:`);
-      console.log(`   npm run worker`);
-      console.log(`\n`);
+      logger.info(`FFmpeg Remote API started on http://localhost:${PORT}`);
+      logger.info(`Socket.io available on ws://localhost:${PORT}`);
     });
     
   } catch (error) {
-    console.error('Erreur au démarrage:', error);
+    logger.error('Server startup failed', { error: error.message });
     process.exit(1);
   }
 }
 
 // Gestion des signaux de terminaison
 process.on('SIGINT', () => {
-  console.log('\nArrêt du serveur...');
+  logger.info('Server shutting down (SIGINT)');
   server.close(() => {
     redisPub.quit();
     redisSub.quit();
@@ -183,7 +186,7 @@ process.on('SIGINT', () => {
 });
 
 process.on('SIGTERM', () => {
-  console.log('Arrêt du serveur...');
+  logger.info('Server shutting down (SIGTERM)');
   server.close(() => {
     redisPub.quit();
     redisSub.quit();

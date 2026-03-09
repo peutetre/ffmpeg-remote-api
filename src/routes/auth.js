@@ -2,6 +2,7 @@ const express = require('express');
 const { register, login, refreshAccessToken, logout, getActiveSessions } = require('../services/auth');
 const { createUser, getUserById, updateUser, deleteUser, listUsers } = require('../services/user');
 const { authenticate } = require('../middleware/auth');
+const { logger } = require('../utils/logger');
 
 const router = express.Router();
 
@@ -19,6 +20,7 @@ router.post('/register', async (req, res) => {
     }
     
     const result = await register({ email, password, name });
+    logger.info('User registered', { email });
     
     res.status(201).json({
       success: true,
@@ -27,7 +29,7 @@ router.post('/register', async (req, res) => {
     });
     
   } catch (error) {
-    console.error('Erreur inscription:', error);
+    logger.error('Register failed', { email: req.body?.email, error: error.message });
     
     if (error.message.includes('email')) {
       return res.status(409).json({
@@ -64,6 +66,7 @@ router.post('/login', async (req, res) => {
     }
     
     const result = await login(email, password);
+    logger.info('User logged in', { email });
     
     res.json({
       success: true,
@@ -72,7 +75,7 @@ router.post('/login', async (req, res) => {
     });
     
   } catch (error) {
-    console.error('Erreur connexion:', error);
+    logger.warn('Login failed', { email: req.body?.email });
     
     res.status(401).json({
       error: 'Identifiants invalides',
@@ -101,7 +104,7 @@ router.post('/refresh', async (req, res) => {
     });
     
   } catch (error) {
-    console.error('Erreur refresh token:', error);
+    logger.error('Refresh token failed', { error: error.message });
     
     res.status(401).json({
       error: 'Token invalide',
@@ -114,6 +117,7 @@ router.post('/refresh', async (req, res) => {
 router.post('/logout', authenticate, async (req, res) => {
   try {
     await logout(req.userId);
+    logger.info('User logged out', { userId: req.userId });
     
     res.json({
       success: true,
@@ -121,7 +125,7 @@ router.post('/logout', authenticate, async (req, res) => {
     });
     
   } catch (error) {
-    console.error('Erreur déconnexion:', error);
+    logger.error('Logout failed', { userId: req.userId, error: error.message });
     res.status(500).json({
       error: 'Erreur interne',
       message: 'Une erreur est survenue lors de la déconnexion',
@@ -178,7 +182,7 @@ router.put('/me', authenticate, async (req, res) => {
       user,
     });
   } catch (error) {
-    console.error('Erreur mise à jour profil:', error);
+    logger.error('Profile update failed', { userId: req.userId, error: error.message });
     res.status(400).json({
       error: 'Données invalides',
       message: error.message,
@@ -196,7 +200,7 @@ router.delete('/me', authenticate, async (req, res) => {
       message: 'Compte supprimé avec succès',
     });
   } catch (error) {
-    console.error('Erreur suppression compte:', error);
+    logger.error('Account deletion failed', { userId: req.userId, error: error.message });
     res.status(500).json({
       error: 'Erreur interne',
       message: 'Une erreur est survenue lors de la suppression',
@@ -217,7 +221,7 @@ router.get('/users', authenticate, async (req, res) => {
     
     res.json(result);
   } catch (error) {
-    console.error('Erreur liste utilisateurs:', error);
+    logger.error('List users failed', { userId: req.userId, error: error.message });
     res.status(500).json({
       error: 'Erreur interne',
       message: 'Une erreur est survenue',
