@@ -6,7 +6,13 @@ const AuthConfig = {
   // Secret pour signer les tokens (lazy loading)
   get jwtSecret() {
     if (_jwtSecret === null) {
-      _jwtSecret = process.env.JWT_SECRET || 'test-secret-key-for-testing-only';
+      if (process.env.JWT_SECRET) {
+        _jwtSecret = process.env.JWT_SECRET;
+      } else if (process.env.NODE_ENV === 'production') {
+        throw new Error('JWT_SECRET environment variable is required in production');
+      } else {
+        _jwtSecret = 'test-secret-key-for-testing-only';
+      }
     }
     return _jwtSecret;
   },

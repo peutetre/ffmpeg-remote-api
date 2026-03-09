@@ -4,8 +4,16 @@ const { executeFfmpegCommand } = require('../services/ffmpeg');
 const { updateJobProgress } = require('../services/jobQueue');
 const { createJobLogger } = require('../utils/logger');
 const FFmpegConfig = require('../config/ffmpeg');
+const { Redis } = require('ioredis');
 
 const QUEUE_NAME = 'ffmpeg_jobs';
+
+// Dedicated Redis publisher for worker→server events
+const redisPub = new Redis(redisOptions);
+
+function publishEvent(type, jobId, data) {
+  redisPub.publish('job:events', JSON.stringify({ type, jobId, data }));
+}
 
 // Créer le worker
 const worker = new Worker(
@@ -27,10 +35,8 @@ const worker = new Worker(
           totalDuration: data.totalDuration,
         });
         
-        // Publier l'événement pour les clients WebSocket
-        if (global.io) {
-          global.io.emit(`job:${id}:progress`, { progress, data });
-        }
+        // Publier via Redis pub/sub (worker runs in separate process)
+        publishEvent('progress', id, { progress, data });
       } catch (error) {
         logger.error('Erreur mise à jour progression', { error });
       }
@@ -38,10 +44,7 @@ const worker = new Worker(
     
     // Fonction callback pour les logs
     const onLog = (line) => {
-      // Publier l'événement pour les clients WebSocket
-      if (global.io) {
-        global.io.emit(`job:${id}:log`, { line });
-      }
+      publishEvent('log', id, { line });
     };
     
     // Exécuter la commande ffmpeg
@@ -55,9 +58,7 @@ const worker = new Worker(
     );
     
     // Publier l'événement de succès
-    if (global.io) {
-      global.io.emit(`job:${id}:completed`, result);
-    }
+    publishEvent('completed', id, result);
     
     logger.info('Job terminé avec succès', result);
     
@@ -85,10 +86,7 @@ worker.on('failed', async (job, error) => {
     const logger = createJobLogger(job.id);
     logger.error('Job échoué', { error: error.message });
     
-    // Publier l'événement d'erreur
-    if (global.io) {
-      global.io.emit(`job:${job.id}:failed`, { error: error.message });
-    }
+    publishEvent('failed', job.id, { error: error.message });
   }
 });
 
@@ -97,6 +95,21 @@ worker.on('completed', async (job) => {
     const logger = createJobLogger(job.id);
     logger.info('Job complété', { result: job.returnvalue });
   }
+});
+
+// Graceful shutdown
+process.on('SIGINT', async () => {
+  console.log('\nArrêt du worker...');
+  await worker.close();
+  await redisPub.quit();
+  process.exit(0);
+});
+
+process.on('SIGTERM', async () => {
+  console.log('Arrêt du worker...');
+  await worker.close();
+  await redisPub.quit();
+  process.exit(0);
 });
 
 module.exports = worker;

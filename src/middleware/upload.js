@@ -1,22 +1,25 @@
 const multer = require('multer');
 const path = require('path');
+const os = require('os');
 const fs = require('fs').promises;
-const { v4: uuidv4 } = require('uuid');
 const FFmpegConfig = require('../config/ffmpeg');
 
-// Configuration du stockage
+const tempUploadDir = path.join(os.tmpdir(), 'ffmpeg-remote-api-uploads');
+
+// Configuration du stockage — files land in a shared temp dir,
+// then the route handler moves them into the final UUID folder.
 const storage = multer.diskStorage({
   destination: async (req, file, cb) => {
-    // Créer un dossier unique pour chaque upload
-    const uploadId = uuidv4();
-    const uploadPath = path.join(FFmpegConfig.uploadDir, uploadId);
-    
-    await fs.mkdir(uploadPath, { recursive: true });
-    cb(null, uploadPath);
+    try {
+      await fs.mkdir(tempUploadDir, { recursive: true });
+      cb(null, tempUploadDir);
+    } catch (error) {
+      cb(error);
+    }
   },
   filename: (req, file, cb) => {
-    // Garder le nom original du fichier avec une extension unique
-    const uniqueName = `${file.originalname.replace(/\s+/g, '_')}`;
+    // Prefix with timestamp to avoid collisions in the shared temp dir
+    const uniqueName = `${Date.now()}_${file.originalname.replace(/\s+/g, '_')}`;
     cb(null, uniqueName);
   },
 });
@@ -53,26 +56,6 @@ const upload = multer({
   limits: limits,
 });
 
-// Middleware pour nettoyer les dossiers vides
-const cleanupEmptyFolders = async (req, res, next) => {
-  const originalJson = res.json;
-  
-  res.json = function(data) {
-    // Nettoyer après la réponse
-    setTimeout(async () => {
-      try {
-        await cleanupOldUploads();
-      } catch (error) {
-        console.error('Erreur lors du nettoyage:', error);
-      }
-    }, 100);
-    
-    return originalJson.apply(res, arguments);
-  };
-  
-  next();
-};
-
 // Nettoyer les uploads anciens
 const cleanupOldUploads = async () => {
   try {
@@ -98,6 +81,5 @@ const cleanupOldUploads = async () => {
 
 module.exports = {
   upload,
-  cleanupEmptyFolders,
   cleanupOldUploads,
 };

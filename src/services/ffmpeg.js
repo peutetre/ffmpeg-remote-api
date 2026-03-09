@@ -1,4 +1,4 @@
-const { exec } = require('child_process');
+const { spawn, exec } = require('child_process');
 const { promisify } = require('util');
 const fs = require('fs').promises;
 const path = require('path');
@@ -43,7 +43,6 @@ function estimateProgress(currentTime, totalDuration) {
 
 // Parser les logs ffmpeg pour extraire la progression
 function parseFfmpegProgress(line) {
-  // Regex pour extraire le timestamp (ex: "frame= 1234 time=00:01:30.123")
   const timeMatch = line.match(/time=(\d{2}):(\d{2}):(\d{2})\.\d+/);
   
   if (timeMatch) {
@@ -57,9 +56,61 @@ function parseFfmpegProgress(line) {
   return { raw: line };
 }
 
+// Parse and validate an ffmpeg/ffprobe command string.
+// Returns { executable, args } or throws on invalid/dangerous input.
+function parseFFmpegCommand(command) {
+  const trimmed = command.trim();
+  
+  const allowedExecutables = ['ffmpeg', 'ffprobe'];
+  
+  // Shell-like argument splitting (handles quoted strings)
+  const args = [];
+  let current = '';
+  let inQuote = false;
+  let quoteChar = '';
+  
+  for (let i = 0; i < trimmed.length; i++) {
+    const char = trimmed[i];
+    if (inQuote) {
+      if (char === quoteChar) {
+        inQuote = false;
+      } else {
+        current += char;
+      }
+    } else if (char === '"' || char === "'") {
+      inQuote = true;
+      quoteChar = char;
+    } else if (char === ' ' || char === '\t') {
+      if (current) {
+        args.push(current);
+        current = '';
+      }
+    } else {
+      current += char;
+    }
+  }
+  if (current) args.push(current);
+  
+  if (args.length === 0) throw new Error('Empty command');
+  
+  const executable = args.shift();
+  if (!allowedExecutables.includes(executable)) {
+    throw new Error(`Only ffmpeg and ffprobe are allowed, got: ${executable}`);
+  }
+  
+  // Block shell metacharacters in arguments
+  const dangerous = /[;&|`$(){}]/;
+  for (const arg of args) {
+    if (dangerous.test(arg)) {
+      throw new Error(`Dangerous character in argument: ${arg}`);
+    }
+  }
+  
+  return { executable, args };
+}
+
 // Exécuter une commande ffmpeg
 async function executeFfmpegCommand(jobId, command, inputDir, outputFileName, onProgress, onLog) {
-  const workspaceDir = path.join(FFmpegConfig.uploadDir, 'jobs', jobId);
   const outputDir = FFmpegConfig.outputDir;
   
   // Créer le dossier de sortie si nécessaire
@@ -73,104 +124,67 @@ async function executeFfmpegCommand(jobId, command, inputDir, outputFileName, on
   
   logger.info('Début de l\'exécution de la commande', { command, inputDir, outputPath });
   
-  // Vérifier que les fichiers d'entrée existent
-  const inputFiles = command.match(/-["']?[a-zA-Z]+["']?\s+["']?([^"'\s]+)["']?/g) || [];
-  for (const match of inputFiles) {
-    const filePath = match.match(/["']?([^"'\s]+)["']?$/)?.[1];
-    if (filePath && !filePath.startsWith('http') && !filePath.startsWith('/dev/')) {
-      const fullPath = path.join(inputDir, filePath);
-      try {
-        await fs.access(fullPath);
-      } catch (error) {
-        logger.error('Fichier d\'entrée introuvable', { filePath, fullPath });
-        throw new Error(`Fichier d\'entrée introuvable: ${filePath}`);
-      }
-    }
-  }
+  // Parse and validate the command (prevents command injection)
+  const { executable, args } = parseFFmpegCommand(command);
   
   // Obtenir la durée du fichier source pour estimer la progression
   let sourceDuration = 0;
-  const sourceFileMatch = command.match(/-["']?[a-zA-Z]+["']?\s+["']?(\S+)["']?/);
-  if (sourceFileMatch) {
-    const sourceFile = sourceFileMatch[1];
-    if (!sourceFile.startsWith('http') && !sourceFile.startsWith('/dev/')) {
-      const sourcePath = path.join(inputDir, sourceFile);
-      sourceDuration = await getMediaDuration(sourcePath);
-      logger.info('Durée du fichier source', { sourceFile, duration: sourceDuration });
+  // Find first -i argument to probe duration
+  for (let i = 0; i < args.length; i++) {
+    if (args[i] === '-i' && args[i + 1]) {
+      const sourceFile = args[i + 1];
+      if (!sourceFile.startsWith('http') && !sourceFile.startsWith('/dev/')) {
+        const sourcePath = path.join(inputDir, sourceFile);
+        sourceDuration = await getMediaDuration(sourcePath);
+        logger.info('Durée du fichier source', { sourceFile, duration: sourceDuration });
+      }
+      break;
     }
   }
   
-  // Exécuter la commande
+  // Exécuter la commande via spawn (no shell)
   const startTime = Date.now();
   
   return new Promise((resolve, reject) => {
-    const startTime = Date.now();
-    
-    // Créer le processus ffmpeg
-    const process = exec(command, {
+    const childProcess = spawn(executable, args, {
       cwd: inputDir,
       timeout: FFmpegConfig.defaultOptions.timeout,
       killSignal: 'SIGTERM',
-      maxBuffer: 10 * 1024 * 1024, // 10MB buffer
     });
     
     let lastProgress = 0;
     
-    // Capturer stdout
-    process.stdout.on('data', (data) => {
-      const lines = data.toString().split('\n');
+    const processLine = (line) => {
+      if (!line.trim()) return;
       
-      for (const line of lines) {
-        if (line.trim()) {
-          // Parser la progression
-          const parsed = parseFfmpegProgress(line);
-          
-          // Mettre à jour la progression si une durée source est disponible
-          if (parsed.currentTime && sourceDuration > 0) {
-            const progress = estimateProgress(parsed.currentTime, sourceDuration);
-            
-            // Ne mettre à jour que si la progression a changé de plus de 5%
-            if (Math.abs(progress - lastProgress) >= 5) {
-              lastProgress = progress;
-              onProgress(progress, { currentTime: parsed.currentTime, totalDuration: sourceDuration });
-            }
-          }
-          
-          // Logger la ligne
-          onLog(line);
-          logger.debug(line);
+      const parsed = parseFfmpegProgress(line);
+      
+      if (parsed.currentTime && sourceDuration > 0) {
+        const progress = estimateProgress(parsed.currentTime, sourceDuration);
+        if (Math.abs(progress - lastProgress) >= 5) {
+          lastProgress = progress;
+          onProgress(progress, { currentTime: parsed.currentTime, totalDuration: sourceDuration });
         }
       }
+      
+      onLog(line);
+      logger.debug(line);
+    };
+    
+    // Capturer stdout
+    childProcess.stdout.on('data', (data) => {
+      const lines = data.toString().split('\n');
+      for (const line of lines) processLine(line);
     });
     
-    // Capturer stderr (les messages d'erreur et d'info de ffmpeg)
-    process.stderr.on('data', (data) => {
+    // Capturer stderr (ffmpeg outputs progress info here)
+    childProcess.stderr.on('data', (data) => {
       const lines = data.toString().split('\n');
-      
-      for (const line of lines) {
-        if (line.trim()) {
-          // Parser la progression
-          const parsed = parseFfmpegProgress(line);
-          
-          // Mettre à jour la progression
-          if (parsed.currentTime && sourceDuration > 0) {
-            const progress = estimateProgress(parsed.currentTime, sourceDuration);
-            
-            if (Math.abs(progress - lastProgress) >= 5) {
-              lastProgress = progress;
-              onProgress(progress, { currentTime: parsed.currentTime, totalDuration: sourceDuration });
-            }
-          }
-          
-          // Logger
-          onLog(line);
-          logger.debug(line);
-        }
-      }
+      for (const line of lines) processLine(line);
     });
     
     // Process terminé
-    process.on('close', (code) => {
+    childProcess.on('close', (code) => {
       const duration = Math.round((Date.now() - startTime) / 1000);
       
       if (code === 0) {
@@ -188,7 +202,7 @@ async function executeFfmpegCommand(jobId, command, inputDir, outputFileName, on
     });
     
     // Erreur du processus
-    process.on('error', (error) => {
+    childProcess.on('error', (error) => {
       logger.error('Erreur du processus', { error });
       reject(error);
     });
@@ -200,4 +214,5 @@ module.exports = {
   getMediaDuration,
   executeFfmpegCommand,
   parseFfmpegProgress,
+  parseFFmpegCommand,
 };
