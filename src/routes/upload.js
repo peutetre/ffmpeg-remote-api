@@ -33,7 +33,9 @@ router.post('/', authenticate, upload.array('files', 100), async (req, res) => {
       // Strip the timestamp prefix we added in multer filename
       const originalName = file.originalname.replace(/\s+/g, '_');
       const destPath = path.join(uploadPath, originalName);
-      await fs.rename(file.path, destPath);
+      // Use copyFile + unlink instead of rename (rename fails across filesystems)
+      await fs.copyFile(file.path, destPath);
+      await fs.unlink(file.path).catch(() => {});
       
       uploadedFiles.push({
         name: file.originalname,
