@@ -1,6 +1,6 @@
 {
   "name": "ffmpeg-remote-api",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "API pour exécuter des jobs ffmpeg à distance",
   "main": "src/server.js",
   "bin": {
