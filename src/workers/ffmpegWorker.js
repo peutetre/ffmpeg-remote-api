@@ -2,7 +2,7 @@ const { Worker } = require('bullmq');
 const { redisOptions } = require('../config/redis');
 const { executeFfmpegCommand } = require('../services/ffmpeg');
 const { updateJobProgress } = require('../services/jobQueue');
-const { createJobLogger } = require('../utils/logger');
+const { logger, createJobLogger } = require('../utils/logger');
 const FFmpegConfig = require('../config/ffmpeg');
 const { Redis } = require('ioredis');
 
@@ -22,10 +22,11 @@ const worker = new Worker(
     const { id, data } = job;
     const { command, uploadId, inputDir, outputFileName } = data;
     
-    // Logger pour ce job
-    const logger = createJobLogger(id);
+    // Logger pour ce job (file-based)
+    const jobLogger = createJobLogger(id);
     
-    logger.info('Début du traitement du job', { command, uploadId, inputDir });
+    logger.info('Job processing started', { jobId: id, command, uploadId });
+    jobLogger.info('Début du traitement du job', { command, uploadId, inputDir });
     
     // Fonction callback pour les mises à jour de progression
     const onProgress = async (progress, data) => {
@@ -38,7 +39,7 @@ const worker = new Worker(
         // Publier via Redis pub/sub (worker runs in separate process)
         publishEvent('progress', id, { progress, data });
       } catch (error) {
-        logger.error('Erreur mise à jour progression', { error });
+        jobLogger.error('Erreur mise à jour progression', { error });
       }
     };
     
@@ -60,7 +61,8 @@ const worker = new Worker(
     // Publier l'événement de succès
     publishEvent('completed', id, result);
     
-    logger.info('Job terminé avec succès', result);
+    logger.info('Job completed', { jobId: id, outputFileName: result.outputFileName });
+    jobLogger.info('Job terminé avec succès', result);
     
     return result;
     
@@ -77,14 +79,15 @@ const worker = new Worker(
 
 // Gestion des erreurs du worker
 worker.on('error', (error) => {
-  console.error('Erreur du worker:', error);
+  logger.error('Worker error', { error: error.message });
 });
 
 // Gestion des erreurs de jobs
 worker.on('failed', async (job, error) => {
   if (job) {
-    const logger = createJobLogger(job.id);
-    logger.error('Job échoué', { error: error.message });
+    const jobLogger = createJobLogger(job.id);
+    logger.error('Job failed', { jobId: job.id, error: error.message });
+    jobLogger.error('Job échoué', { error: error.message });
     
     publishEvent('failed', job.id, { error: error.message });
   }
@@ -92,21 +95,21 @@ worker.on('failed', async (job, error) => {
 
 worker.on('completed', async (job) => {
   if (job) {
-    const logger = createJobLogger(job.id);
-    logger.info('Job complété', { result: job.returnvalue });
+    const jobLogger = createJobLogger(job.id);
+    jobLogger.info('Job complété', { result: job.returnvalue });
   }
 });
 
 // Graceful shutdown
 process.on('SIGINT', async () => {
-  console.log('\nArrêt du worker...');
+  logger.info('Worker shutting down (SIGINT)');
   await worker.close();
   await redisPub.quit();
   process.exit(0);
 });
 
 process.on('SIGTERM', async () => {
-  console.log('Arrêt du worker...');
+  logger.info('Worker shutting down (SIGTERM)');
   await worker.close();
   await redisPub.quit();
   process.exit(0);

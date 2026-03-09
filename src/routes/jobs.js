@@ -6,6 +6,7 @@ const { redisClient } = require('../config/redis');
 const { createJob, getJobStatus, cancelJob, getQueueStats, listJobs, getUserJobs, updateJobMetadata } = require('../services/jobQueue');
 const { authenticate } = require('../middleware/auth');
 const FFmpegConfig = require('../config/ffmpeg');
+const { logger } = require('../utils/logger');
 
 const router = express.Router();
 
@@ -63,6 +64,8 @@ router.post('/', authenticate, async (req, res) => {
       userId: req.userId,
     });
     
+    logger.info('Job created', { jobId, uploadId, userId: req.userId });
+
     res.status(201).json({
       success: true,
       jobId,
@@ -70,7 +73,7 @@ router.post('/', authenticate, async (req, res) => {
     });
     
   } catch (error) {
-    console.error('Erreur création job:', error);
+    logger.error('Job creation failed', { error: error.message, userId: req.userId });
     res.status(500).json({
       error: 'Erreur lors de la création du job',
       message: error.message,
@@ -102,7 +105,7 @@ router.get('/', authenticate, async (req, res) => {
     res.json(result);
     
   } catch (error) {
-    console.error('Erreur liste jobs:', error);
+    logger.error('List jobs failed', { error: error.message, userId: req.userId });
     res.status(500).json({
       error: 'Erreur lors de la récupération des jobs',
       message: error.message,
@@ -144,10 +147,11 @@ router.get('/:id', authenticate, async (req, res) => {
       }
     }
     
+    logger.debug('Job status queried', { jobId: req.params.id });
     res.json(status);
     
   } catch (error) {
-    console.error('Erreur statut job:', error);
+    logger.error('Job status query failed', { jobId: req.params.id, error: error.message });
     res.status(500).json({
       error: 'Erreur lors de la récupération du statut',
       message: error.message,
@@ -179,13 +183,15 @@ router.delete('/:id', authenticate, async (req, res) => {
       });
     }
     
+    logger.info('Job cancelled', { jobId: req.params.id, userId: req.userId });
+
     res.json({
       success: true,
       message: 'Job annulé avec succès',
     });
     
   } catch (error) {
-    console.error('Erreur annulation job:', error);
+    logger.error('Job cancellation failed', { jobId: req.params.id, error: error.message, userId: req.userId });
     res.status(500).json({
       error: 'Erreur lors de l\'annulation du job',
       message: error.message,
@@ -245,12 +251,14 @@ router.get('/:id/result', authenticate, async (req, res) => {
     res.setHeader('Content-Length', stat.size);
     res.setHeader('Content-Disposition', `attachment; filename="${status.result.outputFileName}"`);
     
+    logger.info('Job result downloaded', { jobId: req.params.id, userId: req.userId });
+
     // Use sync fs for createReadStream (not available on fs.promises)
     const stream = fsSync.createReadStream(outputPath);
     stream.pipe(res);
     
   } catch (error) {
-    console.error('Erreur téléchargement résultat:', error);
+    logger.error('Job result download failed', { jobId: req.params.id, error: error.message });
     res.status(500).json({
       error: 'Erreur lors du téléchargement',
       message: error.message,

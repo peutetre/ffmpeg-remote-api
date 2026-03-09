@@ -5,6 +5,7 @@ const { v4: uuidv4 } = require('uuid');
 const { upload } = require('../middleware/upload');
 const { authenticate } = require('../middleware/auth');
 const FFmpegConfig = require('../config/ffmpeg');
+const { logger } = require('../utils/logger');
 
 const router = express.Router();
 
@@ -45,6 +46,9 @@ router.post('/', authenticate, upload.array('files', 100), async (req, res) => {
       });
     }
     
+    const totalSize = uploadedFiles.reduce((sum, f) => sum + f.size, 0);
+    logger.info('Files uploaded', { uploadId, fileCount: uploadedFiles.length, totalSize, userId: req.userId });
+
     res.json({
       success: true,
       uploadId,
@@ -53,7 +57,7 @@ router.post('/', authenticate, upload.array('files', 100), async (req, res) => {
     });
     
   } catch (error) {
-    console.error('Erreur upload:', error);
+    logger.error('Upload failed', { error: error.message, userId: req.userId });
     res.status(500).json({
       error: 'Erreur lors de l\'upload',
       message: error.message,
