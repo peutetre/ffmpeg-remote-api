@@ -58,9 +58,9 @@ async function getJobStatus(jobId) {
     }
 
     const state = await job.getState();
-    const progress = await job.progress();
-    const result = await job.returnvalue;
-    const failedReason = await job.failedReason;
+    const progress = job.progress; // BullMQ 5.x: property, not method
+    const result = job.returnvalue;
+    const failedReason = job.failedReason;
 
     return {
       exists: true,
@@ -94,7 +94,10 @@ async function cancelJob(jobId) {
 // Mettre à jour la progression d'un job
 async function updateJobProgress(jobId, progress, data = {}) {
   try {
-    await jobQueue.updateJobProgress(jobId, progress, data);
+    const job = await jobQueue.getJob(jobId);
+    if (job) {
+      await job.updateProgress(progress);
+    }
     return { success: true };
   } catch (error) {
     return { success: false, error: error.message };
@@ -181,7 +184,7 @@ async function listJobs(options = {}) {
     if (queueJob) {
       const state = await queueJob.getState();
       job.status = STATUS_MAP[state] || job.status;
-      job.progress = await queueJob.progress();
+      job.progress = queueJob.progress; // BullMQ 5.x: property, not method
     }
     return job;
   }));
