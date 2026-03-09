@@ -1,0 +1,75 @@
+version: '3.8'
+
+services:
+  # Redis pour BullMQ
+  redis:
+    image: redis:7-alpine
+    container_name: ffmpeg-api-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 3
+
+  # API Server
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: ffmpeg-api-server
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+      - REDIS_HOST=redis
+      - PORT=3000
+      - MAX_UPLOAD_SIZE_MB=5000
+      - MAX_CONCURRENT_JOBS=4
+      - FFPROG_TIMEOUT_HOURS=2
+      - TEMP_FILE_TTL_HOURS=24
+    volumes:
+      - uploads:/app/uploads
+      - output:/app/output
+      - logs:/app/logs
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # Worker FFmpeg
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: ffmpeg-api-worker
+    environment:
+      - NODE_ENV=production
+      - REDIS_HOST=redis
+      - MAX_CONCURRENT_JOBS=2
+    volumes:
+      - uploads:/app/uploads
+      - output:/app/output
+      - logs:/app/logs
+    command: npm run worker
+    depends_on:
+      redis:
+        condition: service_healthy
+      api:
+        condition: service_started
+    restart: unless-stopped
+
+volumes:
+  redis_data:
+  uploads:
+  output:
+  logs:
+
+networks:
+  default:
+    name: ffmpeg-api-network
