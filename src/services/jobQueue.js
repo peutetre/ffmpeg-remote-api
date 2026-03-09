@@ -33,7 +33,7 @@ const STATUS_MAP = {
 
 // Créer un job
 async function createJob(data) {
-  const { id } = await jobQueue.add(data);
+  const { id } = await jobQueue.add('ffmpeg', data);
   
   // Sauvegarder les métadonnées pour la pagination
   const jobData = {
