@@ -34,6 +34,8 @@ const fileFilter = (req, file, cb) => {
     'audio/mpeg', 'audio/wav', 'audio/ogg', 'audio/webm', 'audio/x-m4a', 'audio/flac',
     // Images
     'image/jpeg', 'image/png', 'image/gif', 'image/bmp', 'image/webp', 'image/tiff',
+    // Text (FFmpeg filter_complex_script files)
+    'text/plain',
   ];
   
   // Vérifier le type MIME
